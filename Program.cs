@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Logging;
 
 // Build configuration
 IConfiguration configuration = new ConfigurationBuilder()
@@ -11,14 +12,27 @@ IConfiguration configuration = new ConfigurationBuilder()
 
 // Set up dependency injection
 var services = new ServiceCollection();
+
+// Add logging first
+services.AddLogging(builder => 
+{
+    builder.AddConsole();
+    builder.SetMinimumLevel(LogLevel.Information);
+});
+
 services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = configuration.GetSection("RedisCacheOptions:ConnectionString").Value;
     options.InstanceName = "TestInstance:"; // Optional: Prefix for cache keys
 });
 
-// Add IDistributedCache to services
+// Build service provider AFTER all services are registered
 var serviceProvider = services.BuildServiceProvider();
+
+// Get the logger AFTER the provider is built
+var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+logger.LogInformation("Begin: Redis cache demo starting");
 
 // Get IDistributedCache instance
 var cache = serviceProvider.GetRequiredService<IDistributedCache>();
@@ -33,21 +47,23 @@ try
     {
         AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
     });
-    Console.WriteLine($"Cache set: {key} = {value}");
+    logger.LogInformation("Cache set: {Key} = {Value}", key, value);
 
     // Retrieve the cache entry  
     string? cachedValue = await cache.GetStringAsync(key);
-    Console.WriteLine($"Cache get: {key} = {cachedValue ?? "Not found"}");
+    logger.LogInformation("Cache get: {Key} = {Value}", key, cachedValue ?? "Not found");
 
     // Optionally, remove the cache entry
     await cache.RemoveAsync(key);
-    Console.WriteLine($"Cache removed: {key}");
+    logger.LogInformation("Cache removed: {Key}", key);
 
     // Verify removal
     cachedValue = await cache.GetStringAsync(key);
-    Console.WriteLine($"Cache get after removal: {key} = {cachedValue ?? "Not found"}");
+    logger.LogInformation("Cache get after removal: {Key} = {Value}", key, cachedValue ?? "Not found");
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"Error interacting with Redis cache: {ex.Message}");
+    logger.LogError(ex, "Error interacting with Redis cache");
 }
+
+logger.LogInformation("End: Redis cache demo completed");
